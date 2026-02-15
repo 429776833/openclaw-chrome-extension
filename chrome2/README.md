@@ -1,6 +1,6 @@
 # OpenClaw Chrome Extension (Browser Relay, Auto-Attach)
 
-Purpose: automatically attach OpenClaw to eligible Chrome tabs so the Gateway can automate them (via the local CDP relay server).
+Purpose: automatically attach OpenClaw to your active Chrome tab so the Gateway can automate it (via the local CDP relay server).
 
 ## Dev / load unpacked
 
@@ -16,10 +16,6 @@ Purpose: automatically attach OpenClaw to eligible Chrome tabs so the Gateway ca
 4. Chrome → `chrome://extensions` → enable “Developer mode”.
 5. “Load unpacked” → select the path printed above.
 6. Pin the extension. Active tabs will auto-attach; no manual toggle is required.
-
-## Control Layer Stability
-
-For N-tab orchestration and target/session stability rules, see `CONTROL_LAYER_RUNBOOK.md`.
 
 ## Options
 

@@ -305,71 +305,6 @@ function isRecoverableDebuggerCommandError(err) {
   return isTabNotFoundError(err) || isDebuggerDetachedError(err)
 }
 
-function isReadOrSnapshotLikeMethod(method) {
-  return (
-    method === 'Page.captureScreenshot' ||
-    method === 'Page.captureSnapshot' ||
-    method === 'DOMSnapshot.captureSnapshot' ||
-    method === 'Page.printToPDF' ||
-    method === 'Page.getLayoutMetrics' ||
-    method === 'DOM.getDocument'
-  )
-}
-
-function normalizeUrlForCompare(url) {
-  const raw = String(url || '').trim()
-  if (!raw) return ''
-  try {
-    const u = new URL(raw)
-    u.hash = ''
-    return u.toString()
-  } catch {
-    return raw
-  }
-}
-
-async function waitForTabComplete(tabId, timeoutMs = 8000) {
-  return await new Promise((resolve) => {
-    let done = false
-    const finish = () => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      chrome.tabs.onUpdated.removeListener(onUpdated)
-      resolve()
-    }
-    const onUpdated = (updatedTabId, changeInfo) => {
-      if (updatedTabId !== tabId) return
-      if (changeInfo.status === 'complete') finish()
-    }
-    const timer = setTimeout(finish, timeoutMs)
-    chrome.tabs.onUpdated.addListener(onUpdated)
-    void chrome.tabs
-      .get(tabId)
-      .then((tab) => {
-        if (tab?.status === 'complete') finish()
-      })
-      .catch(() => finish())
-  })
-}
-
-async function recoverTabByUrlRenavigate(tabId, expectedUrl, source = 'url-guard') {
-  const normalizedExpected = normalizeUrlForCompare(expectedUrl)
-  if (!normalizedExpected || !canAttachToUrl(expectedUrl)) return false
-  const liveTab = await chrome.tabs.get(tabId).catch(() => null)
-  if (!liveTab?.id) return false
-  const normalizedLive = normalizeUrlForCompare(liveTab.url || '')
-  if (normalizedLive !== normalizedExpected) {
-    await chrome.tabs.update(tabId, { url: expectedUrl }).catch(() => null)
-  } else {
-    await chrome.tabs.reload(tabId).catch(() => null)
-  }
-  await waitForTabComplete(tabId, 8000)
-  await ensureAttachedToTabId(tabId, `${source}-reattach`)
-  await refreshTabTargetInfo(tabId, `${source}-post-nav`)
-  return tabs.get(tabId)?.state === 'connected'
-}
-
 async function isLiveTabId(tabId) {
   if (!tabId) return false
   const tab = await chrome.tabs.get(tabId).catch(() => null)
@@ -674,8 +609,6 @@ async function handleForwardCdpCommand(msg) {
     throw new Error(`Session ${sessionId} is not attached to tab ${resolvedTabId}`)
   }
   const debuggerSession = sessionBinding?.kind === 'child' ? { ...debuggee, sessionId } : debuggee
-  const baselineTab = await chrome.tabs.get(resolvedTabId).catch(() => null)
-  const baselineUrl = String(baselineTab?.url || '').trim()
 
   try {
     return await chrome.debugger.sendCommand(debuggerSession, method, params)
@@ -699,55 +632,8 @@ async function handleForwardCdpCommand(msg) {
       if (tabs.get(resolvedTabId)?.state === 'connected') {
         const retryDebuggee = { tabId: resolvedTabId }
         if (!sessionId || sessionBinding?.kind !== 'child') {
-          try {
-            console.warn('[relay] retrying command on reattached tab', JSON.stringify({ method, resolvedTabId }))
-            return await chrome.debugger.sendCommand(retryDebuggee, method, params)
-          } catch (retryErr) {
-            if (!isRecoverableDebuggerCommandError(retryErr)) throw retryErr
-            console.warn(
-              '[relay] reattached-tab retry failed',
-              JSON.stringify({
-                method,
-                resolvedTabId,
-                error: String(retryErr instanceof Error ? retryErr.message : retryErr),
-              })
-            )
-          }
-        }
-      }
-
-      if (baselineUrl && isReadOrSnapshotLikeMethod(method)) {
-        const currentTab = await chrome.tabs.get(resolvedTabId).catch(() => null)
-        const currentUrl = String(currentTab?.url || '').trim()
-        const drifted = normalizeUrlForCompare(currentUrl) !== normalizeUrlForCompare(baselineUrl)
-        if (drifted || tabs.get(resolvedTabId)?.state !== 'connected') {
-          console.warn(
-            '[relay] url guard triggered',
-            JSON.stringify({
-              method,
-              tabId: resolvedTabId,
-              expectedUrl: baselineUrl,
-              currentUrl: currentUrl || null,
-            })
-          )
-          const recovered = await recoverTabByUrlRenavigate(resolvedTabId, baselineUrl, 'recoverable-url-guard')
-          if (recovered && (!sessionId || sessionBinding?.kind !== 'child')) {
-            const retryDebuggee = { tabId: resolvedTabId }
-            try {
-              console.warn('[relay] retrying command after url guard', JSON.stringify({ method, resolvedTabId }))
-              return await chrome.debugger.sendCommand(retryDebuggee, method, params)
-            } catch (urlRetryErr) {
-              if (!isRecoverableDebuggerCommandError(urlRetryErr)) throw urlRetryErr
-              console.warn(
-                '[relay] url-guard retry failed',
-                JSON.stringify({
-                  method,
-                  resolvedTabId,
-                  error: String(urlRetryErr instanceof Error ? urlRetryErr.message : urlRetryErr),
-                })
-              )
-            }
-          }
+          console.warn('[relay] retrying command on reattached tab', JSON.stringify({ method, resolvedTabId }))
+          return await chrome.debugger.sendCommand(retryDebuggee, method, params)
         }
       }
     }

@@ -1,0 +1,13 @@
+测出来了：会，而且我刚刚现场复现了。
+
+具体结果：
+
+1. tabs 正常拿到 targetId
+2. 用该 targetId 做 snapshot：成功
+3. 在同一 tab 点一次筛选（People tab）后再 snapshot：直接 tab not found
+这就符合我们说的状态：
+
+• Relay/worker是活的
+• 但 UI动作后 target 引用会瞬时失效（控制层失配）
+所以结论：你这个 case 不是“连不上”，是“交互后 targetId 变脆弱”。
+
